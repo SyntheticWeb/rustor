@@ -1,16 +1,19 @@
 use crossterm::{
-    cursor, execute,
+    cursor,
+    event::{poll, read, Event, KeyCode},
+    execute,
     style::{self, style, Color, SetForegroundColor, Stylize},
     terminal, ExecutableCommand, QueueableCommand,
 };
-use std::collections::HashMap;
 use std::io::{self, Stdout, Write};
+use std::{collections::HashMap, time::Duration};
 use std::{thread, time};
 
 struct Screen {
     width: u16,
     height: u16,
     panes: Vec<Pane>,
+    focus: usize,
 }
 
 #[derive(PartialEq)]
@@ -21,6 +24,7 @@ struct Pane {
     height: u16,
     show: bool,
     element: ElementType,
+    focused: bool,
 }
 
 #[derive(PartialEq)]
@@ -65,15 +69,18 @@ impl Menu {
     fn draw(&self, out: &mut Stdout) -> io::Result<()> {
         for item in &self.options {
             if &self.options[self.selected] == item {
-                out.execute(style::SetBackgroundColor(Color::DarkGreen))?;
+                out.queue(style::SetBackgroundColor(Color::DarkGreen))?;
             } else {
-                out.execute(style::SetBackgroundColor(Color::Reset))?;
+                out.queue(style::SetBackgroundColor(Color::Reset))?;
             }
 
-            out.execute(cursor::MoveTo(self.x, self.y + item.order))?;
-            out.execute(style::Print(&item.text))?;
+            out.queue(cursor::MoveTo(self.x, self.y + item.order))?;
+            out.queue(style::Print(&item.text))?;
         }
-        out.execute(style::SetBackgroundColor(Color::Reset))?;
+        out.queue(style::SetBackgroundColor(Color::Reset))?;
+
+        out.flush()?;
+
         Ok(())
     }
 
@@ -100,6 +107,7 @@ impl Pane {
             height,
             show: false,
             element,
+            focused: false,
         };
 
         return pane;
@@ -111,9 +119,14 @@ impl Pane {
         let w = self.width; // We double the effect as it takes 2 horizontal characters to make up the same size as a vertical one
         let h = self.height;
 
+        if self.focused {
+            out.queue(style::SetForegroundColor(Color::White))?;
+        } else {
+            out.queue(style::SetForegroundColor(Color::Green))?;
+        }
+
         for x in xp + 1..xp + w {
             out.queue(cursor::MoveTo(x, yp))?.queue(style::Print("─"))?;
-            out.flush()?;
         }
 
         out.queue(cursor::MoveTo(xp + w, yp))?
@@ -121,7 +134,6 @@ impl Pane {
 
         for y in yp + 1..yp + h {
             out.queue(cursor::MoveTo(xp, y))?.queue(style::Print("│"))?;
-            out.flush()?;
         }
         out.queue(cursor::MoveTo(xp + w, yp + h))?
             .queue(style::Print("╯"))?;
@@ -129,7 +141,6 @@ impl Pane {
         for x in (xp + 1..xp + w).rev() {
             out.queue(cursor::MoveTo(x, yp + h))?
                 .queue(style::Print("─"))?;
-            out.flush()?;
         }
         out.queue(cursor::MoveTo(xp, yp + h))?
             .queue(style::Print("╰"))?;
@@ -137,7 +148,6 @@ impl Pane {
         for y in (yp + 1..yp + h).rev() {
             out.queue(cursor::MoveTo(xp + w, y))?
                 .queue(style::Print("│"))?;
-            out.flush()?;
         }
         out.queue(cursor::MoveTo(xp, yp))?
             .queue(style::Print("╭"))?;
@@ -153,6 +163,10 @@ impl Pane {
 
         Ok(())
     }
+
+    fn focused(&mut self) {
+        self.focused = true;
+    }
 }
 
 impl Screen {
@@ -163,6 +177,7 @@ impl Screen {
             width,
             height,
             panes,
+            focus: 0,
         };
         return screen;
     }
@@ -220,6 +235,14 @@ impl Screen {
         Ok(())
     }
 
+    fn increment_focus(&mut self) {
+        if self.focus == self.panes.len() - 1 {
+            self.focus = 0;
+        } else {
+            self.focus += 1;
+        }
+    }
+
     fn add_pane(&mut self, pane: Pane) {
         self.panes.push(pane);
     }
@@ -250,9 +273,24 @@ fn main() -> io::Result<()> {
 
     let menu_pane = Pane::new(20, 20, 10, 10, ElementType::Menu(menu));
 
+    let other_pane = Pane::new(5, 5, 5, 5, ElementType::Empty(Empty {}));
+
     screen.add_pane(menu_pane);
+    screen.add_pane(other_pane);
 
     loop {
+        screen.panes[screen.focus].focused();
         screen.draw_panes(&mut stdout)?;
+
+        if poll(Duration::from_millis(100))? {
+            match read()? {
+                Event::Key(event) => match event.code {
+                    KeyCode::Tab => screen.increment_focus(),
+                    KeyCode::Enter => screen.increment_focus(),
+                    _ => todo!(),
+                },
+                _ => todo!(),
+            }
+        }
     }
 }
