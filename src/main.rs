@@ -36,9 +36,11 @@ use mainscreen::MainScreenApp;
 pub struct Rustor {
     app_select_state: ListState,
     app_open: bool,
+    selected_app: usize,
     exit: bool,
     layout: Layout,
     apps: Vec<Box<dyn App>>,
+    app_focused: bool,
 }
 
 impl Rustor {
@@ -52,8 +54,10 @@ impl Rustor {
             exit: false,
             layout: default_layout,
             apps,
+            selected_app: 0,
             app_select_state: default_menu_state,
             app_open: false,
+            app_focused: false,
         }
     }
 }
@@ -64,6 +68,7 @@ enum Message {
     PrevApp,
     OpenApp,
     CloseRustor,
+    SwapFocus,
 }
 
 fn main() -> io::Result<()> {
@@ -80,7 +85,7 @@ fn main() -> io::Result<()> {
     while !model.exit {
         terminal.draw(|f| view(&mut model, f))?;
 
-        let mut current_msg = handle_event(&model)?;
+        let mut current_msg = handle_event(&mut model)?;
 
         if current_msg.is_some() {
             update(&mut model, current_msg.clone().unwrap());
@@ -95,8 +100,16 @@ fn update(model: &mut Rustor, msg: Message) {
     match msg {
         Message::NextApp => model.app_select_state.select_next(),
         Message::PrevApp => model.app_select_state.select_previous(),
-        Message::OpenApp => model.app_open = true,
+        Message::OpenApp => {
+            if !model.app_open {
+                model.app_open = true;
+                model.selected_app = model.app_select_state.selected().unwrap();
+            } else {
+                model.selected_app = model.app_select_state.selected().unwrap();
+            }
+        }
         Message::CloseRustor => model.exit = true,
+        Message::SwapFocus => {}
     }
 }
 
@@ -120,12 +133,11 @@ fn view(model: &mut Rustor, frame: &mut Frame) {
     frame.render_stateful_widget(menu, screen_split[0], &mut model.app_select_state);
 
     if model.app_open {
-        let selected = model.app_select_state.selected().unwrap();
-        model.apps[selected].view(&model.layout, frame);
+        model.apps[model.selected_app].view(&model.layout, frame);
     }
 }
 
-fn handle_event(_: &Rustor) -> io::Result<Option<Message>> {
+fn handle_event(model: &mut Rustor) -> io::Result<Option<Message>> {
     if event::poll(Duration::from_millis(250))? {
         if let Event::Key(key) = event::read()? {
             if key.kind == event::KeyEventKind::Press {
@@ -142,6 +154,7 @@ fn handle_key(key: event::KeyEvent) -> Option<Message> {
         KeyCode::Char('j') => Some(Message::NextApp),
         KeyCode::Char('q') => Some(Message::CloseRustor),
         KeyCode::Enter => Some(Message::OpenApp),
+        KeyCode::Tab => Some(Message::SwapFocus),
         _ => None,
     }
 }
