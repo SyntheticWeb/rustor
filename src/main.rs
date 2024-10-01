@@ -1,296 +1,160 @@
 use crossterm::{
-    cursor,
-    event::{poll, read, Event, KeyCode},
-    execute,
-    style::{self, style, Color, SetForegroundColor, Stylize},
-    terminal, ExecutableCommand, QueueableCommand,
+    event::{Event, KeyEvent},
+    terminal::{
+        self, disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    },
+    ExecutableCommand,
 };
-use std::io::{self, Stdout, Write};
-use std::{collections::HashMap, time::Duration};
-use std::{thread, time};
+use ratatui::{
+    crossterm::event::{self, KeyCode, KeyEventKind},
+    layout::{self, Constraint, Direction, Layout},
+    prelude::{self, Backend, CrosstermBackend},
+    style::{Color, Style, Stylize},
+    text::ToText,
+    widgets::{Block, List, ListItem, ListState, Paragraph, Widget},
+    DefaultTerminal, Frame, Terminal,
+};
 
-struct Screen {
-    width: u16,
-    height: u16,
-    panes: Vec<Pane>,
-    focus: usize,
+use std::{
+    any::Any,
+    borrow::Borrow,
+    fmt::Debug,
+    io::{self, stdout},
+    time::Duration,
+};
+
+mod app;
+mod filetree;
+mod mainscreen;
+mod rain;
+
+use app::{App, AppInfo};
+use filetree::FileTreeApp;
+use mainscreen::MainScreenApp;
+
+#[derive(Debug, Default)]
+pub struct Rustor {
+    app_select_state: ListState,
+    app_open: bool,
+    exit: bool,
+    layout: Layout,
+    apps: Vec<Box<dyn App>>,
 }
 
-#[derive(PartialEq)]
-struct Pane {
-    x: u16,
-    y: u16,
-    width: u16,
-    height: u16,
-    show: bool,
-    element: ElementType,
-    focused: bool,
-}
+impl Rustor {
+    fn new(apps: Vec<Box<dyn App>>) -> Rustor {
+        let default_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![Constraint::Percentage(20), Constraint::Percentage(80)]);
+        let mut default_menu_state = ListState::default();
 
-#[derive(PartialEq)]
-struct MenuItem {
-    text: String,
-    order: u16,
-    pane: Pane,
-}
-
-impl MenuItem {
-    fn new(text: String, order: u16, pane: Pane) -> MenuItem {
-        MenuItem {
-            text: text,
-            order: order,
-            pane: pane,
+        Rustor {
+            exit: false,
+            layout: default_layout,
+            apps,
+            app_select_state: default_menu_state,
+            app_open: false,
         }
-    }
-}
-
-#[derive(PartialEq)]
-struct Menu {
-    x: u16,
-    y: u16,
-    w: u16,
-    h: u16,
-    options: Vec<MenuItem>,
-    selected: usize,
-}
-
-impl Menu {
-    fn new(x: u16, y: u16, w: u16, h: u16, options: Vec<MenuItem>) -> Menu {
-        Menu {
-            x: 2 * x + 1,
-            y: y + 1,
-            w: 2 * w - 1,
-            h: h - 1,
-            options: options,
-            selected: 0,
-        }
-    }
-
-    fn draw(&self, out: &mut Stdout) -> io::Result<()> {
-        for item in &self.options {
-            if &self.options[self.selected] == item {
-                out.queue(style::SetBackgroundColor(Color::DarkGreen))?;
-            } else {
-                out.queue(style::SetBackgroundColor(Color::Reset))?;
-            }
-
-            out.queue(cursor::MoveTo(self.x, self.y + item.order))?;
-            out.queue(style::Print(&item.text))?;
-        }
-        out.queue(style::SetBackgroundColor(Color::Reset))?;
-
-        out.flush()?;
-
-        Ok(())
-    }
-
-    fn close(out: &mut Stdout, screen: &mut Screen) -> io::Result<()> {
-        Ok(())
     }
 }
 
-#[derive(PartialEq)]
-enum ElementType {
-    Menu(Menu),
-    Empty(Empty),
-}
-
-#[derive(PartialEq)]
-struct Empty {}
-
-impl Pane {
-    fn new(x: u16, y: u16, width: u16, height: u16, element: ElementType) -> Pane {
-        let pane = Pane {
-            x: 2 * x,
-            y,
-            width: 2 * width,
-            height,
-            show: false,
-            element,
-            focused: false,
-        };
-
-        return pane;
-    }
-
-    fn draw(&self, out: &mut Stdout) -> io::Result<()> {
-        let xp = self.x;
-        let yp = self.y;
-        let w = self.width; // We double the effect as it takes 2 horizontal characters to make up the same size as a vertical one
-        let h = self.height;
-
-        if self.focused {
-            out.queue(style::SetForegroundColor(Color::White))?;
-        } else {
-            out.queue(style::SetForegroundColor(Color::Green))?;
-        }
-
-        for x in xp + 1..xp + w {
-            out.queue(cursor::MoveTo(x, yp))?.queue(style::Print("─"))?;
-        }
-
-        out.queue(cursor::MoveTo(xp + w, yp))?
-            .queue(style::Print("╮"))?;
-
-        for y in yp + 1..yp + h {
-            out.queue(cursor::MoveTo(xp, y))?.queue(style::Print("│"))?;
-        }
-        out.queue(cursor::MoveTo(xp + w, yp + h))?
-            .queue(style::Print("╯"))?;
-
-        for x in (xp + 1..xp + w).rev() {
-            out.queue(cursor::MoveTo(x, yp + h))?
-                .queue(style::Print("─"))?;
-        }
-        out.queue(cursor::MoveTo(xp, yp + h))?
-            .queue(style::Print("╰"))?;
-
-        for y in (yp + 1..yp + h).rev() {
-            out.queue(cursor::MoveTo(xp + w, y))?
-                .queue(style::Print("│"))?;
-        }
-        out.queue(cursor::MoveTo(xp, yp))?
-            .queue(style::Print("╭"))?;
-
-        out.flush()?;
-
-        match &self.element {
-            ElementType::Menu(menu) => {
-                menu.draw(out)?;
-            }
-            ElementType::Empty(_empty) => {}
-        }
-
-        Ok(())
-    }
-
-    fn focused(&mut self) {
-        self.focused = true;
-    }
-}
-
-impl Screen {
-    fn new(width: u16, height: u16) -> Screen {
-        let panes: Vec<Pane> = Vec::new();
-
-        let screen = Screen {
-            width,
-            height,
-            panes,
-            focus: 0,
-        };
-        return screen;
-    }
-
-    fn intro(&self, out: &mut Stdout) -> io::Result<()> {
-        let pause = time::Duration::from_millis(1);
-
-        out.queue(cursor::Hide)?;
-
-        execute!(out, SetForegroundColor(Color::Green))?;
-
-        for x in 1..self.width - 1 {
-            out.queue(cursor::MoveTo(x, 1))?.queue(style::Print("─"))?;
-            out.flush()?;
-            thread::sleep(pause);
-        }
-
-        out.queue(cursor::MoveTo(self.width - 1, 1))?
-            .queue(style::Print("╮"))?;
-
-        for y in 2..self.height - 1 {
-            out.queue(cursor::MoveTo(self.width - 1, y))?
-                .queue(style::Print("│"))?;
-            out.flush()?;
-            thread::sleep(pause);
-        }
-        out.queue(cursor::MoveTo(self.width - 1, self.height - 1))?
-            .queue(style::Print("╯"))?;
-
-        for x in (1..self.width - 1).rev() {
-            out.queue(cursor::MoveTo(x, self.height - 1))?
-                .queue(style::Print("─"))?;
-            out.flush()?;
-            thread::sleep(pause);
-        }
-        out.queue(cursor::MoveTo(1, self.height - 1))?
-            .queue(style::Print("╰"))?;
-
-        for y in (2..self.height - 1).rev() {
-            out.queue(cursor::MoveTo(1, y))?.queue(style::Print("│"))?;
-            out.flush()?;
-            thread::sleep(pause);
-        }
-        out.queue(cursor::MoveTo(1, 1))?.queue(style::Print("╭"))?;
-
-        out.flush()?;
-        Ok(())
-    }
-
-    fn draw_panes(&self, out: &mut Stdout) -> io::Result<()> {
-        for pane in &self.panes {
-            pane.draw(out)?;
-        }
-
-        Ok(())
-    }
-
-    fn increment_focus(&mut self) {
-        if self.focus == self.panes.len() - 1 {
-            self.focus = 0;
-        } else {
-            self.focus += 1;
-        }
-    }
-
-    fn add_pane(&mut self, pane: Pane) {
-        self.panes.push(pane);
-    }
+#[derive(PartialEq, Clone)]
+enum Message {
+    NextApp,
+    PrevApp,
+    OpenApp,
+    CloseRustor,
 }
 
 fn main() -> io::Result<()> {
-    let mut stdout = io::stdout();
+    let mut terminal = init_terminal()?;
+    terminal.clear()?;
 
-    let (width, height) = terminal::size()?;
+    let main_screen = MainScreenApp::new();
+    let file_tree = FileTreeApp::new();
 
-    let mut screen = Screen::new(width, height);
+    let apps: Vec<Box<dyn App>> = vec![Box::new(main_screen), Box::new(file_tree)];
 
-    stdout.execute(terminal::Clear(terminal::ClearType::All))?;
-    screen.intro(&mut stdout)?;
+    let mut model = Rustor::new(apps);
 
-    let edit_pane = Pane::new(20, 20, 10, 10, ElementType::Empty(Empty {}));
+    while !model.exit {
+        terminal.draw(|f| view(&mut model, f))?;
 
-    let menu_item = MenuItem::new("start editing".to_string(), 1, edit_pane);
-    let menu_item2 = MenuItem::new(
-        "start inspecting".to_string(),
-        2,
-        Pane::new(0, 0, 1, 1, ElementType::Empty(Empty {})),
-    );
+        let mut current_msg = handle_event(&model)?;
 
-    let menu_options = vec![menu_item, menu_item2];
+        if current_msg.is_some() {
+            update(&mut model, current_msg.clone().unwrap());
+        }
+    }
 
-    let menu = Menu::new(20, 20, 10, 10, menu_options);
+    restore_terminal()?;
+    Ok(())
+}
 
-    let menu_pane = Pane::new(20, 20, 10, 10, ElementType::Menu(menu));
+fn update(model: &mut Rustor, msg: Message) {
+    match msg {
+        Message::NextApp => model.app_select_state.select_next(),
+        Message::PrevApp => model.app_select_state.select_previous(),
+        Message::OpenApp => model.app_open = true,
+        Message::CloseRustor => model.exit = true,
+    }
+}
 
-    let other_pane = Pane::new(5, 5, 5, 5, ElementType::Empty(Empty {}));
+fn view(model: &mut Rustor, frame: &mut Frame) {
+    let items: Vec<ListItem> = model
+        .apps
+        .iter()
+        .map(|i| {
+            let info = i.info().clone();
+            ListItem::new(info.title)
+        })
+        .collect();
 
-    screen.add_pane(menu_pane);
-    screen.add_pane(other_pane);
+    let menu = List::new(items)
+        .block(Block::bordered().title("Rustor Apps"))
+        .style(Style::default().fg(Color::Green))
+        .highlight_symbol("*");
 
-    loop {
-        screen.panes[screen.focus].focused();
-        screen.draw_panes(&mut stdout)?;
+    let screen_split = model.layout.split(frame.area());
 
-        if poll(Duration::from_millis(100))? {
-            match read()? {
-                Event::Key(event) => match event.code {
-                    KeyCode::Tab => screen.increment_focus(),
-                    KeyCode::Enter => screen.increment_focus(),
-                    _ => todo!(),
-                },
-                _ => todo!(),
+    frame.render_stateful_widget(menu, screen_split[0], &mut model.app_select_state);
+
+    if model.app_open {
+        let selected = model.app_select_state.selected().unwrap();
+        model.apps[selected].view(&model.layout, frame);
+    }
+}
+
+fn handle_event(_: &Rustor) -> io::Result<Option<Message>> {
+    if event::poll(Duration::from_millis(250))? {
+        if let Event::Key(key) = event::read()? {
+            if key.kind == event::KeyEventKind::Press {
+                return Ok(handle_key(key));
             }
         }
     }
+    Ok(None)
+}
+
+fn handle_key(key: event::KeyEvent) -> Option<Message> {
+    match key.code {
+        KeyCode::Char('k') => Some(Message::PrevApp),
+        KeyCode::Char('j') => Some(Message::NextApp),
+        KeyCode::Char('q') => Some(Message::CloseRustor),
+        KeyCode::Enter => Some(Message::OpenApp),
+        _ => None,
+    }
+}
+
+fn init_terminal() -> io::Result<Terminal<impl Backend>> {
+    enable_raw_mode()?;
+    stdout().execute(EnterAlternateScreen)?;
+    let terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
+    Ok(terminal)
+}
+
+fn restore_terminal() -> io::Result<()> {
+    stdout().execute(LeaveAlternateScreen)?;
+    disable_raw_mode()?;
+    Ok(())
 }
