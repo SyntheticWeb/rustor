@@ -12,17 +12,12 @@ pub struct AppInfo {
 
 pub trait App: Any + Debug {
     type Msg: AppMessage;
-    type Generator: MsgGenerator<Msg = Self::Msg>;
 
     fn view(&self, layout: &Layout, frame: &mut Frame);
     fn update(&mut self, msg: &Self::Msg);
     fn info(&self) -> AppInfo;
-    fn generator() -> Self::Generator;
+    fn generate_msg(&self, key_event: KeyEvent) -> Option<Self::Msg>;
 }
 
 pub trait AppMessage: Any {}
 
-pub trait MsgGenerator {
-    type Msg: AppMessage;
-    fn generate_msg(key_event: KeyEvent) -> impl AppMessage;
-}

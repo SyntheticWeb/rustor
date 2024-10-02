@@ -1,8 +1,10 @@
 use ratatui::{layout::{Alignment, Layout}, style::{Style, Stylize}, widgets::{Block, Padding, Paragraph}, Frame};
 
 use std::fmt::Debug;
+use crate::app::{App, AppInfo, AppMessage};
 
-use crate::app::{App, AppInfo};
+use crossterm::event::KeyCode;
+use crossterm::event;
 
 #[derive(Debug, Clone)]
 pub struct MainScreenApp {
@@ -10,7 +12,16 @@ pub struct MainScreenApp {
     text: std::string::String
 }
 
+pub enum MainScreenMsg {
+    Placeholder
+}
+
+
+impl AppMessage for MainScreenMsg {}
+
 impl App for MainScreenApp {
+    type Msg = MainScreenMsg;
+
     fn view(&self, layout: &Layout, frame: &mut Frame) {
         let title_screen = Paragraph::new(String::from(&self.text))
             .block(Block::new().padding(Padding::new(0, 0, layout.split(frame.area())[1].height/2, 0)).border_style(Style::new().blue()))
@@ -18,10 +29,23 @@ impl App for MainScreenApp {
         frame.render_widget(title_screen, layout.split(frame.area())[1]);
     }
 
-    fn update(&mut self) {}
+
+    fn update(&mut self, msg: &Self::Msg) {
+        match msg {
+            MainScreenMsg::Placeholder => self.text = "Event Received!".to_string(),
+        }
+    }
 
     fn info(&self) -> AppInfo {
         return self.info.clone();
+    }
+    
+    fn generate_msg(&self, key_event: event::KeyEvent) -> Option<Self::Msg> {
+        match key_event.code {
+            KeyCode::Enter => Some(MainScreenMsg::Placeholder),
+            _ => None,
+            }
+        
     }
 }
 

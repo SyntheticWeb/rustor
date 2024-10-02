@@ -1,23 +1,20 @@
 use crossterm::{
-    event::{Event, KeyEvent},
+    event::Event,
     terminal::{
-        self, disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+        disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
     },
     ExecutableCommand,
 };
 use ratatui::{
-    crossterm::event::{self, KeyCode, KeyEventKind},
-    layout::{self, Constraint, Direction, Layout},
-    prelude::{self, Backend, CrosstermBackend},
-    style::{Color, Style, Stylize},
-    text::ToText,
-    widgets::{Block, List, ListItem, ListState, Paragraph, Widget},
-    DefaultTerminal, Frame, Terminal,
+    crossterm::event::{self, KeyCode},
+    layout::{Constraint, Direction, Layout},
+    prelude::{Backend, CrosstermBackend},
+    style::{Color, Style},
+    widgets::{Block, List, ListItem, ListState},
+    Frame, Terminal,
 };
 
 use std::{
-    any::Any,
-    borrow::Borrow,
     fmt::Debug,
     io::{self, stdout},
     time::Duration,
@@ -32,6 +29,14 @@ use app::{App, AppInfo};
 use filetree::FileTreeApp;
 use mainscreen::MainScreenApp;
 
+#[derive(Debug)]
+enum AppType {
+    MainScreenApp(MainScreenApp),
+    FileTreeApp(FileTreeApp),
+}
+
+
+
 #[derive(Debug, Default)]
 pub struct Rustor {
     app_select_state: ListState,
@@ -39,12 +44,12 @@ pub struct Rustor {
     selected_app: usize,
     exit: bool,
     layout: Layout,
-    apps: Vec<Box<dyn App>>,
+    apps: Vec<AppType>,
     app_focused: bool,
 }
 
 impl Rustor {
-    fn new(apps: Vec<Box<dyn App>>) -> Rustor {
+    fn new(apps: Vec<AppType>) -> Rustor {
         let default_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![Constraint::Percentage(20), Constraint::Percentage(80)]);
@@ -78,7 +83,7 @@ fn main() -> io::Result<()> {
     let main_screen = MainScreenApp::new();
     let file_tree = FileTreeApp::new();
 
-    let apps: Vec<Box<dyn App>> = vec![Box::new(main_screen), Box::new(file_tree)];
+    let apps = vec![AppType::MainScreenApp(main_screen),AppType::FileTreeApp(file_tree)];
 
     let mut model = Rustor::new(apps);
 
@@ -118,7 +123,11 @@ fn view(model: &mut Rustor, frame: &mut Frame) {
         .apps
         .iter()
         .map(|i| {
-            let info = i.info().clone();
+            let info: AppInfo;
+            match i {
+                AppType::FileTreeApp(app)=> info = app.info().clone(),
+                AppType::MainScreenApp(app)=> info = app.info().clone(),
+            }
             ListItem::new(info.title)
         })
         .collect();
@@ -133,7 +142,10 @@ fn view(model: &mut Rustor, frame: &mut Frame) {
     frame.render_stateful_widget(menu, screen_split[0], &mut model.app_select_state);
 
     if model.app_open {
-        model.apps[model.selected_app].view(&model.layout, frame);
+            match &model.apps[model.selected_app] {
+                AppType::FileTreeApp(app)=> app.view(&model.layout, frame),
+                AppType::MainScreenApp(app)=> app.view(&model.layout,frame),
+            }
     }
 }
 
