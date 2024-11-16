@@ -4,5 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+color-eyre = "0.6.3"
 crossterm = "0.28.1"
+directories = "5.0.1"
+lazy_static = "1.5.0"
+log = "0.4.22"
 ratatui = "0.28.1"
+tracing = "0.1.40"
+tracing-error = "0.2.0"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tui-logger = "0.13.2"
