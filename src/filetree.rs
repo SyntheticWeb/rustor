@@ -22,8 +22,8 @@ use std::{path::PathBuf, result};
 
 use crate::app::{App, AppInfo, AppMessage};
 
-use crossterm::event;
 use crossterm::event::KeyCode;
+use crossterm::event::{self, KeyModifiers};
 
 #[derive(Debug, Clone)]
 pub struct FileTreeApp {
@@ -49,7 +49,11 @@ pub enum FileTreeMsg {
     CursorUp,
     DeleteChar,
     CreateFile,
-    DeleteFile,
+    CreateDir,
+    Delete,
+    Rename,
+    Move,
+    Copy,
     Confirm,
     Cancel,
     NoneMsg,
@@ -117,8 +121,10 @@ impl App for FileTreeApp {
             match self.confirm_action {
                 ConfirmAction::Delete(index) => {
                     let delete_path = self.entries[index].clone();
-                    let confirm_delete =
-                        format!("Are you sure you want to delete {:?}? (Y/N)", delete_path);
+                    let confirm_delete = format!(
+                        "{index:<3}: Are you sure you want to delete {:?}? (Y/N)",
+                        delete_path
+                    );
                     file_items[index] = ListItem::new(confirm_delete);
                 }
                 _ => {}
@@ -130,7 +136,7 @@ impl App for FileTreeApp {
         let list = List::new(file_items)
             .block(Block::bordered().title("Directory Contents (Path|Type|Perm|Size):"))
             .style(path_style)
-            .highlight_style(Style::default().bg(Color::LightGreen));
+            .highlight_style(Style::default().bg(Color::LightGreen).fg(Color::White));
         frame.render_stateful_widget(list, path_area, &mut self.select_state);
     }
 
@@ -164,9 +170,23 @@ impl App for FileTreeApp {
                     Err(err) => error!("Could not create file: {err} at {filepath}"),
                 }
             }
-            FileTreeMsg::DeleteFile => {
+            FileTreeMsg::CreateDir => {
+                let dirpath = format!("{}", self.input);
+                let result = fs::create_dir(&dirpath);
+
+                match result {
+                    Ok(file) => {
+                        info!("Created directory {}", dirpath);
+                        self.read_path(self.open_path.clone());
+                    }
+                    Err(err) => error!("Could not create directory: {err} at {dirpath}"),
+                }
+            }
+            FileTreeMsg::Delete => {
                 let index = self.select_state.selected().unwrap();
-                self.confirm_action = ConfirmAction::Delete(index)
+                if index != self.entries.len() {
+                    self.confirm_action = ConfirmAction::Delete(index)
+                }
             }
             FileTreeMsg::Confirm => {
                 let action = self.confirm_action.clone();
@@ -194,7 +214,12 @@ impl App for FileTreeApp {
         match self.input_mode {
             InputMode::Search => match key_event.code {
                 KeyCode::Enter => Some(FileTreeMsg::OpenPath),
-                KeyCode::Char(' ') => Some(FileTreeMsg::CreateFile),
+                KeyCode::Char('f') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                    Some(FileTreeMsg::CreateFile)
+                }
+                KeyCode::Char('d') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                    Some(FileTreeMsg::CreateDir)
+                }
                 KeyCode::Char(to_insert) => Some(FileTreeMsg::TextEntered(to_insert)),
                 KeyCode::Backspace => Some(FileTreeMsg::DeleteChar),
                 KeyCode::Left => Some(FileTreeMsg::CursorLeft),
@@ -205,7 +230,10 @@ impl App for FileTreeApp {
                 KeyCode::Backspace => Some(FileTreeMsg::OpenPath),
                 KeyCode::Char('j') => Some(FileTreeMsg::CursorDown),
                 KeyCode::Char('k') => Some(FileTreeMsg::CursorUp),
-                KeyCode::Char('d') => Some(FileTreeMsg::DeleteFile),
+                KeyCode::Char('d') => Some(FileTreeMsg::Delete),
+                KeyCode::Char('r') => Some(FileTreeMsg::Rename),
+                KeyCode::Char('m') => Some(FileTreeMsg::Move),
+                KeyCode::Char('c') => Some(FileTreeMsg::Copy),
                 KeyCode::Char('y') | KeyCode::Char('Y') => Some(FileTreeMsg::Confirm),
                 KeyCode::Char('n') | KeyCode::Char('N') => Some(FileTreeMsg::Cancel),
                 _ => Some(FileTreeMsg::NoneMsg),
@@ -359,7 +387,21 @@ impl FileTreeApp {
         }
     }
 
-    fn delete_file(&mut self, file: path::PathBuf) {}
+    fn delete(
+        &mut self,
+        path: path::PathBuf,
+        metadata: fs::Metadata,
+    ) -> Result<(), std::io::Error> {
+        if metadata.is_dir() {
+        } else if metadata.is_file() {
+            let result = fs::remove_file(path);
+            self.confirm_action = ConfirmAction::None;
+            self.read_path(self.open_path.clone());
+            return result;
+        }
+
+        Ok(())
+    }
 
     fn confirm_action(&mut self) -> Result<(), std::io::Error> {
         match self.confirm_action {
@@ -367,13 +409,7 @@ impl FileTreeApp {
                 let path = self.entries[index].clone();
                 let metadata = self.metadata[index].clone();
 
-                if metadata.is_dir() {
-                } else if metadata.is_file() {
-                    let result = fs::remove_file(path);
-                    self.confirm_action = ConfirmAction::None;
-                    self.read_path(self.open_path.clone());
-                    return result;
-                }
+                return self.delete(path, metadata);
             }
 
             _ => {}
