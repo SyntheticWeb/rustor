@@ -24,18 +24,21 @@ mod app;
 mod filetree;
 mod logging;
 mod mainscreen;
+mod networkscan;
 mod rain;
 
 use app::{App, AppInfo};
 use filetree::FileTreeApp;
 use logging::LoggingApp;
 use mainscreen::MainScreenApp;
+use networkscan::NetScanApp;
 
 #[derive(Debug)]
 enum AppType {
     MainScreenApp(MainScreenApp),
     FileTreeApp(FileTreeApp),
     LoggingApp(LoggingApp),
+    NetScan(NetScanApp),
 }
 
 #[derive(Debug, Default)]
@@ -87,11 +90,13 @@ fn main() -> io::Result<()> {
     let main_screen = MainScreenApp::new();
     let file_tree = FileTreeApp::new();
     let logging_app = LoggingApp::new();
+    let netscan_app = NetScanApp::new();
 
     let apps = vec![
         AppType::MainScreenApp(main_screen),
         AppType::FileTreeApp(file_tree),
         AppType::LoggingApp(logging_app),
+        AppType::NetScan(netscan_app),
     ];
 
     let mut model = Rustor::new(apps);
@@ -150,6 +155,7 @@ fn view(model: &mut Rustor, frame: &mut Frame) {
                 AppType::FileTreeApp(app) => info = app.info().clone(),
                 AppType::MainScreenApp(app) => info = app.info().clone(),
                 AppType::LoggingApp(app) => info = app.info().clone(),
+                AppType::NetScan(app) => info = app.info().clone(),
             }
             ListItem::new(info.title)
         })
@@ -183,6 +189,7 @@ fn view(model: &mut Rustor, frame: &mut Frame) {
             AppType::FileTreeApp(app) => app.view(&model.layout, frame, app_style),
             AppType::MainScreenApp(app) => app.view(&model.layout, frame, app_style),
             AppType::LoggingApp(app) => app.view(&model.layout, frame, app_style),
+            AppType::NetScan(app) => app.view(&model.layout, frame, app_style),
         }
     }
 }
@@ -224,6 +231,16 @@ fn handle_key(model: &mut Rustor, key: event::KeyEvent) -> Option<Message> {
                     None
                 }
                 AppType::LoggingApp(app) => {
+                    let msg = app.generate_msg(key);
+                    match msg {
+                        Some(app_msg) => {
+                            app.update(&app_msg);
+                        }
+                        None => {}
+                    }
+                    None
+                }
+                AppType::NetScan(app) => {
                     let msg = app.generate_msg(key);
                     match msg {
                         Some(app_msg) => {
