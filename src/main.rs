@@ -211,43 +211,19 @@ fn handle_key(model: &mut Rustor, key: event::KeyEvent) -> Option<Message> {
             KeyCode::Tab => Some(Message::SwapFocus),
             _ => match &mut model.apps[model.selected_app] {
                 AppType::FileTreeApp(app) => {
-                    let msg = app.generate_msg(key);
-                    match msg {
-                        Some(app_msg) => {
-                            app.update(&app_msg);
-                        }
-                        None => {}
-                    }
+                    app_update(app, key);
                     None
                 }
                 AppType::MainScreenApp(app) => {
-                    let msg = app.generate_msg(key);
-                    match msg {
-                        Some(app_msg) => {
-                            app.update(&app_msg);
-                        }
-                        None => {}
-                    }
+                    app_update(app, key);
                     None
                 }
                 AppType::LoggingApp(app) => {
-                    let msg = app.generate_msg(key);
-                    match msg {
-                        Some(app_msg) => {
-                            app.update(&app_msg);
-                        }
-                        None => {}
-                    }
+                    app_update(app, key);
                     None
                 }
                 AppType::NetScan(app) => {
-                    let msg = app.generate_msg(key);
-                    match msg {
-                        Some(app_msg) => {
-                            app.update(&app_msg);
-                        }
-                        None => {}
-                    }
+                    app_update(app, key);
                     None
                 }
             },
@@ -261,6 +237,12 @@ fn handle_key(model: &mut Rustor, key: event::KeyEvent) -> Option<Message> {
             KeyCode::Tab => Some(Message::SwapFocus),
             _ => None,
         }
+    }
+}
+
+fn app_update<T: App>(app: &mut T, key: event::KeyEvent) {
+    if let Some(msg) = app.generate_msg(key) {
+        app.update(&msg)
     }
 }
 
