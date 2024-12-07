@@ -63,6 +63,7 @@ pub enum FileTreeMsg {
 pub enum ConfirmAction {
     Delete(usize),
     Rename(usize),
+    Copy(PathBuf),
     None,
 }
 
