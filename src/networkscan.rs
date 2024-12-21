@@ -8,7 +8,7 @@ use ratatui::{
 
 use sysinfo::Networks;
 
-use rustscan::{address, scanner};
+use pistol;
 
 use crate::app::{App, AppInfo, AppMessage};
 use core::{fmt, net};
@@ -27,9 +27,13 @@ pub struct NetScanApp {
     text: std::string::String,
     interfaces: NetInterfaces,
     selected_interface: ListState,
+    current_options: ScanOptions,
 }
 
-pub struct ScanOptions {}
+#[derive(Debug, Clone)]
+pub struct ScanOptions {
+    icmp_host_ping: bool,
+}
 
 #[derive(Debug, Clone)]
 struct NetInterfaces {
@@ -43,6 +47,10 @@ struct NetInfo {
     nmask: Option<net::IpAddr>,
     mac: String,
     name: String,
+}
+
+enum OptionEnable {
+    ICMPHost
 }
 
 pub enum NetScanMsg {
@@ -144,6 +152,10 @@ impl NetScanApp {
             text: "Network app for scanning network interfaces".to_string(),
             interfaces: net_interfaces,
             selected_interface: ListState::default().with_selected(Some(0)),
+            current_options: ScanOptions{
+                icmp_host_ping: false,
+            }
+
         };
 
         return main_app;
@@ -163,7 +175,7 @@ impl NetScanApp {
         }
     }
 
-    pub fn set_option(&mut self) {}
+    pub fn set_option(&mut self, option ) {}
 
     pub fn interface_names(&self) -> Vec<String> {
         let mut interface_names: Vec<String> = vec![];
@@ -186,6 +198,14 @@ impl NetScanApp {
         return self.interfaces.networks[self.selected_interface.selected().unwrap()]
             .name
             .clone();
+    }
+
+    pub fn scan_hosts(mut& self) {
+        if self
+    }
+
+    pub fn icmp_scan() {
+
     }
 }
 
