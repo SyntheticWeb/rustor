@@ -21,6 +21,7 @@ use log::{error, info, warn};
 use tui_logger::{init_logger, set_default_level, TuiLoggerWidget};
 
 mod app;
+mod components;
 mod filetree;
 mod logging;
 mod mainscreen;
